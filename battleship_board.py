@@ -11,6 +11,7 @@ import battleship_utils_py as bscpp
 
 from pydrake.solvers import mathematicalprogram as mp
 import pydrake.symbolic as sym
+from pydrake.autodiffutils import AutoDiffXd
 from pydrake.solvers.gurobi import GurobiSolver
         
 def tfmat(x, y, theta):
@@ -100,7 +101,7 @@ class Board():
 
 
 
-    def project_to_feasibility_nlp(self, ships):
+    def project_to_feasibility_nlp(self, ships, ax = None):
         # Represent finding a board configuration as
         #  a resolution of nonlinear nonpenetration
         #  constraints (entirely point-vs-plane, for
@@ -117,25 +118,76 @@ class Board():
         # (Where each element of phi will be the collision
         # distance from each point on each body
 
-        all_points = []
+
+        # Get a bunch of autodiffable ships
+        autodiff_ships = []
+        nq = len(ships)*3
         for i, ship in enumerate(ships):
+            x_deriv_array = np.zeros(nq)
+            y_deriv_array = np.zeros(nq)
+            theta_deriv_array = np.zeros(nq)
+            x_deriv_array[3*i+0] = 1
+            y_deriv_array[3*i+1] = 1
+            theta_deriv_array[3*i+2] = 1
+
+            autodiff_ships.append(
+                bscpp.ShipAutodiff(
+                    ship.get_length(),
+                    AutoDiffXd(ship.get_x(), x_deriv_array),
+                    AutoDiffXd(ship.get_y(), y_deriv_array),
+                    AutoDiffXd(ship.get_theta(), theta_deriv_array),
+                    ship.get_color()
+                    )
+            )
+
+        all_points = []
+        for i, ship in enumerate(autodiff_ships):
             all_points.append(ship.GetPointsInWorldFrame(spacing=0.5, side_length=1.0))
+
         npts = np.sum( [pts.shape[1] for pts in all_points] )
 
-        print("Npts %d" % npts)
+        for ii in range(50):
+            phi = np.empty(len(ships), dtype=AutoDiffXd)
 
-        phi = np.zeros(npts)
-        dphi_dq = np.zeros((npts, len(ships)*3))
+            for i, ship in enumerate(autodiff_ships):
+                # Broadphase checker
+                closest_ship_dist = 10000.
+                all_nearphase_phis = np.empty(len(ships), dtype=AutoDiffXd)
+                num_nearphase_ships = 0
 
-        dphi_dqall = dphi_dq
-        for i, ship in enumerate(ships):
-            for k in range(all_points[i].shape[1]):
-                point = all_points[i][:, k]
-                for other_ship in ships:
+                for other_ship in autodiff_ships:
                     if other_ship is not ship:
-                        phi[(i*4):(i*4+4)], dphi_dq[(i*4):(i*4+4), (k*3):(k*3+3)] = other_ship.GetSignedDistanceToPoint(point)
-        print(phi, dphi_dq)
+                        ship_dist = math.sqrt((ship.get_x().value() - other_ship.get_x().value())**2
+                            +(ship.get_y().value() - other_ship.get_y().value())**2)
+                        closest_ship_dist = min(ship_dist, closest_ship_dist)
+                        #if ship_dist > closest_ship_dist+ship.get_length()+other_ship.get_length():
+                        #    continue
 
+                        all_nearphase_phis[num_nearphase_ships] = np.min(other_ship.GetSignedDistanceToPoints(all_points[i]))
+                        num_nearphase_ships+=1
+                
+                phi[i] = np.min(all_nearphase_phis[0:num_nearphase_ships])
+
+            q_correct = np.zeros(nq)
+            for i, phi_i in enumerate(phi):
+                if phi_i.value() < 0:
+                    q_correct += -0.5*phi_i.derivatives()
+
+            print(q_correct)
+            for i, ship in enumerate(autodiff_ships):
+                ship.set_x(ship.get_x() + q_correct[i*3+0])
+                ship.set_y(ship.get_y() + q_correct[i*3+1])
+                ship.set_theta(ship.get_theta() + q_correct[i*3+2])
+                ships[i].set_x(ship.get_x().value())
+                ships[i].set_y(ship.get_y().value())
+                ships[i].set_theta(ship.get_theta().value())
+
+            if ax is not None:
+                ax.clear()
+                self.draw(ax)
+
+
+        print("Done")
         return ships
 
 
@@ -285,12 +337,12 @@ if __name__ == "__main__":
     ship = bscpp.Ship(5, 2.3, 1.0, 0.2, [1., 0., 0.])
 
     board = Board(10, 10)
-    board.spawn_N_ships(20, max_length=3)
+    board.spawn_N_ships(10, max_length=5)
 
     fig, (ax1, ax2) = plt.subplots(1, 2)
     board.draw(ax1)
     fig.show()
 
-    board.ships = board.project_to_feasibility_nlp(board.ships)
+    board.ships = board.project_to_feasibility_nlp(board.ships, ax2)
     board.draw(ax2)
     plt.show()

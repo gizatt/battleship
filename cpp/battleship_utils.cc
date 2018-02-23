@@ -1,5 +1,7 @@
 #include "battleship_utils.h"
 
+#include <drake/common/autodiff.h>
+
 #include <unistd.h>
 #include <iostream>
 #include <random>
@@ -38,7 +40,7 @@ Scalar get_signed_distance_to_line_segment(Matrix<Scalar, 2, 1> v,
   Matrix<Scalar, 2, 1> cross_dir;
   cross_dir(0) = -(w - v)(1) / l2;
   cross_dir(1) = (w - v)(0) / l2;
-  Scalar signed_distance = error.transpose() * cross_dir;
+  return error.transpose() * cross_dir;
 }
 
 template <typename Scalar>
@@ -63,6 +65,7 @@ Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPoints(double spacing,
     // Compute points.
 
     Matrix<Scalar, 2, 4> corners;
+
     corners << -side_length / 2, -side_length / 2.,
         side_length / 2. + (length_ - 1), side_length / 2. + (length_ - 1),
         -side_length / 2, side_length / 2., side_length / 2., -side_length / 2.;
@@ -81,8 +84,8 @@ Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPoints(double spacing,
       points.col(k) = c1;
       k++;
 
-      double edge_length = sqrt((c2 - c1).transpose() * (c2 - c1));
-      for (double interp = spacing / edge_length; interp < 0.999;
+      Scalar edge_length = sqrt((c2 - c1).transpose() * (c2 - c1));
+      for (Scalar interp = spacing / edge_length; interp < 0.999;
            interp += spacing / edge_length) {
         points.col(k) = c1 * (1. - interp) + c2 * interp;
         k++;
@@ -109,25 +112,25 @@ Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPointsInWorldFrame(
 }
 
 template <typename Scalar>
-std::pair<Eigen::Matrix<Scalar, 4, 1>, Eigen::Matrix<Scalar, 4, 3>> Ship<
-    Scalar>::GetSignedDistanceToPoint(const Eigen::Matrix<Scalar, 2, 1> point) {
-  Eigen::Matrix<Scalar, 4, 1> phi;
-  Eigen::Matrix<Scalar, 4, 3> dphi_dq;
+Matrix<Scalar, Dynamic, 1> Ship<Scalar>::GetSignedDistanceToPoints(
+    const Matrix<Scalar, 2, Dynamic> points) {
+  Matrix<Scalar, 4, Dynamic> phi_all(4, points.cols());
 
   auto corners = GetPointsInWorldFrame(length_, 1.0);
 
   for (int i = 0; i < 4; i++) {
     auto c1 = corners.col(i);
     auto c2 = corners.col((i + 1) % 4);
-
-    phi(i) = get_signed_distance_to_line_segment<Scalar>(c1, c2, point);
-    dphi_dq(i, 0) = 0.;
+    for (int k = 0; k < points.cols(); k++) {
+      phi_all(i, k) =
+          get_signed_distance_to_line_segment<Scalar>(c1, c2, points.col(k));
+    }
   }
 
-  return std::pair<Eigen::Matrix<Scalar, 4, 1>, Eigen::Matrix<Scalar, 4, 3>>(
-      phi, dphi_dq);
+  return phi_all.rowwise().minCoeff();
 }
 
 template class Ship<double>;
+template class Ship<drake::AutoDiffXd>;
 
 Board::Board() { printf("ASDFASDFASDF\n"); }
