@@ -32,67 +32,6 @@ def project_onto_line_segment(v, w, p):
 def get_sign_of_distance_to_line_segment(v, w, p):
     return np.sign((w-v)[0]*p[1] - (w-v)[1]*p[0])
 
-class DeadShip():
-    def __init__(self, length, x, y, theta, color=[1., 0., 0.]):
-        self.length = length
-        self.x = x
-        self.y = y
-        self.theta = theta
-        self.color = color
-        self.precomputed_points = {}
-
-    def tfmat(self):
-        return tfmat(self.x, self.y, self.theta)
-
-    def getPoints(self, spacing=0.5, side_length=1.0):
-        if (spacing, side_length) in self.precomputed_points.keys():
-            return self.precomputed_points[(spacing, side_length)]
-        else:
-            # "Center" at 0, 0
-            corners = np.array([[-side_length/2.                ,-side_length/2.],
-                                [-side_length/2.                , side_length/2.],
-                                [ side_length/2.+(self.length-1), side_length/2.],
-                                [ side_length/2.+(self.length-1),-side_length/2.]]).T
-
-            points = []
-            for i in range(4):
-                c1 = corners[:, i]
-                c2 = corners[:, (i+1)%4]
-
-                points.append(c1)
-
-                length = np.sqrt(np.linalg.norm(c2 - c1))
-                for interp in np.arange(spacing/length, 1., spacing/length):
-                    points.append(c1*(1.-interp) + c2*interp)
-            
-            points = np.array(points).T
-            
-            self.precomputed_points[(spacing, side_length)] = points
-            return points
-
-    def getPointsInWorldFrame(self, spacing=0.5, side_length=1.0):
-        points = self.getPoints(spacing, side_length)
-        points_homog = np.vstack([points, np.ones(points.shape[1])])
-        return np.dot(self.tfmat(), points_homog)[0:2, :]
-
-    def getSignedDistanceToPoint(self, point):
-        # Get corners
-        corners = self.getPointsInWorldFrame(spacing=self.length, side_length=1.0)
-
-        phi = np.zeros(4)
-        dphi_dq = np.zeros((4, 3))
-
-        for i in range(4):
-            c1 = corners[:, i]
-            c2 = corners[:, (i+1)%4]
-            projected_point = project_onto_line_segment(c1, c2, point)
-            sign = get_sign_of_distance_to_line_segment(c1, c2, point)
-            phi[i] = sign * np.linalg.norm(projected_point - point)
-            dphi_dq[i, 0] = sign * 0
-
-
-        return phi, dphi_dq
-
 def LogicalAndAsVariable(prog, invars):
     tempvar = prog.NewBinaryVariables(1, "temp_logical_and_var")[0]
     prog.AddLinearConstraint(tempvar >= np.sum(invars) - (len(invars)-1))
@@ -346,7 +285,7 @@ if __name__ == "__main__":
     ship = bscpp.Ship(5, 2.3, 1.0, 0.2, [1., 0., 0.])
 
     board = Board(10, 10)
-    board.spawn_N_ships(20, max_length=5)
+    board.spawn_N_ships(20, max_length=3)
 
     fig, (ax1, ax2) = plt.subplots(1, 2)
     board.draw(ax1)

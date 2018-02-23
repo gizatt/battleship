@@ -10,6 +10,37 @@ using namespace std;
 using namespace Eigen;
 using namespace battleship_utils;
 
+// Project point p onto bounded line segment
+// v w
+// Ref
+// https://stackoverflow.com/questions/849211/shortest-distance-between-a-point-and-a-line-segment
+template <typename Scalar>
+Matrix<Scalar, 2, 1> project_onto_line_segment(Matrix<Scalar, 2, 1> v,
+                                               Matrix<Scalar, 2, 1> w,
+                                               Matrix<Scalar, 2, 1> p) {
+  Scalar l2 = (w - v).transpose() * (w - v);
+
+  auto t = max(0.0, min(1.0, ((p - v).transpose() * (w - v))[0] / l2));
+  return v + t * (w - v);
+}
+
+template <typename Scalar>
+Scalar get_signed_distance_to_line_segment(Matrix<Scalar, 2, 1> v,
+                                           Matrix<Scalar, 2, 1> w,
+                                           Matrix<Scalar, 2, 1> p) {
+  auto projected_point = project_onto_line_segment(v, w, p);
+  auto error = projected_point - p;
+
+  // Get sign by dotting onto a vector orthogonal to the line,
+  // assuming it's directed v->w
+
+  Scalar l2 = (w - v).transpose() * (w - v);
+  Matrix<Scalar, 2, 1> cross_dir;
+  cross_dir(0) = -(w - v)(1) / l2;
+  cross_dir(1) = (w - v)(0) / l2;
+  Scalar signed_distance = error.transpose() * cross_dir;
+}
+
 template <typename Scalar>
 Ship<Scalar>::Ship(int length, Scalar x, Scalar y, Scalar theta,
                    std::vector<double> color)
@@ -38,20 +69,20 @@ Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPoints(double spacing,
 
     // Will return 4 corners, plus additional points from interpolating
     // the edges.
-    int n_pts =
-        4 + 2 * ceil(side_length / spacing - 1) + 2 * ceil(1. / spacing - 1);
+    int n_pts = 4 + 2 * ceil((side_length + length_ - 1) / spacing - 1) +
+                2 * ceil(side_length / spacing - 1);
     Matrix<Scalar, 2, Dynamic> points(2, n_pts);
 
     int k = 0;
     for (int i = 0; i < 4; i++) {
       auto c1 = corners.col(i);
-      auto c2 = corners.col(i);
+      auto c2 = corners.col((i + 1) % 4);
 
       points.col(k) = c1;
       k++;
 
-      double edge_length = sqrt((c2 - c1).norm());
-      for (double interp = spacing / edge_length; interp < 1.;
+      double edge_length = sqrt((c2-c1).transpose() * (c2 - c1));
+      for (double interp = spacing / edge_length; interp < 0.999;
            interp += spacing / edge_length) {
         points.col(k) = c1 * (1. - interp) + c2 * interp;
         k++;
@@ -69,19 +100,28 @@ template <typename Scalar>
 Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPointsInWorldFrame(
     double spacing, double side_length) {
   Matrix<Scalar, 3, 3> tf = GetTfMat();
-  Matrix<Scalar, 2, Dynamic> intermed = tf.block(0, 0, 2, 2) * GetPoints(spacing, side_length);
+  Matrix<Scalar, 2, Dynamic> intermed =
+      tf.block(0, 0, 2, 2) * GetPoints(spacing, side_length);
   // Colwise isn't happy with me...
   for (int i = 0; i < intermed.cols(); i++)
-  	intermed.col(i) += tf.block(0, 2, 2, 1);
+    intermed.col(i) += tf.block(0, 2, 2, 1);
   return intermed;
 }
 
 template <typename Scalar>
 void Ship<Scalar>::GetSignedDistanceToPoint(
-    const Eigen::Matrix<Scalar, 3, 1> point,
+    const Eigen::Matrix<Scalar, 2, 1> point,
     Eigen::Ref<Eigen::Matrix<Scalar, 4, 1>>& phi,
     Eigen::Ref<Eigen::Matrix<Scalar, 4, 3>>& dphi_dq) {
-  printf("todo");
+  auto corners = GetPointsInWorldFrame(length_, 1.0);
+
+  for (int i = 0; i < 4; i++) {
+    auto c1 = corners.col(i);
+    auto c2 = corners.col((i + 1) % 4);
+
+    phi(i) = get_signed_distance_to_line_segment<Scalar>(c1, c2, point);
+    dphi_dq(i, 0) = 0.;
+  }
 }
 
 template class Ship<double>;
