@@ -20,10 +20,8 @@ class Ship {
   Eigen::Matrix<Scalar, 2, Eigen::Dynamic> GetPointsInWorldFrame(
       double spacing = 0.5, double side_length = 1.0);
 
-  void GetSignedDistanceToPoint(
-      const Eigen::Matrix<Scalar, 2, 1> point,
-      Eigen::Ref<Eigen::Matrix<Scalar, 4, 1>>& phi,
-      Eigen::Ref<Eigen::Matrix<Scalar, 4, 3>>& dphi_dq);
+  std::pair<Eigen::Matrix<Scalar, 4, 1>, Eigen::Matrix<Scalar, 4, 3>>
+  GetSignedDistanceToPoint(const Eigen::Matrix<Scalar, 2, 1> point);
 
   std::vector<double> get_color() { return color_; }
 

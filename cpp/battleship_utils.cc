@@ -81,7 +81,7 @@ Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPoints(double spacing,
       points.col(k) = c1;
       k++;
 
-      double edge_length = sqrt((c2-c1).transpose() * (c2 - c1));
+      double edge_length = sqrt((c2 - c1).transpose() * (c2 - c1));
       for (double interp = spacing / edge_length; interp < 0.999;
            interp += spacing / edge_length) {
         points.col(k) = c1 * (1. - interp) + c2 * interp;
@@ -109,10 +109,11 @@ Matrix<Scalar, 2, Dynamic> Ship<Scalar>::GetPointsInWorldFrame(
 }
 
 template <typename Scalar>
-void Ship<Scalar>::GetSignedDistanceToPoint(
-    const Eigen::Matrix<Scalar, 2, 1> point,
-    Eigen::Ref<Eigen::Matrix<Scalar, 4, 1>>& phi,
-    Eigen::Ref<Eigen::Matrix<Scalar, 4, 3>>& dphi_dq) {
+std::pair<Eigen::Matrix<Scalar, 4, 1>, Eigen::Matrix<Scalar, 4, 3>> Ship<
+    Scalar>::GetSignedDistanceToPoint(const Eigen::Matrix<Scalar, 2, 1> point) {
+  Eigen::Matrix<Scalar, 4, 1> phi;
+  Eigen::Matrix<Scalar, 4, 3> dphi_dq;
+
   auto corners = GetPointsInWorldFrame(length_, 1.0);
 
   for (int i = 0; i < 4; i++) {
@@ -122,6 +123,9 @@ void Ship<Scalar>::GetSignedDistanceToPoint(
     phi(i) = get_signed_distance_to_line_segment<Scalar>(c1, c2, point);
     dphi_dq(i, 0) = 0.;
   }
+
+  return std::pair<Eigen::Matrix<Scalar, 4, 1>, Eigen::Matrix<Scalar, 4, 3>>(
+      phi, dphi_dq);
 }
 
 template class Ship<double>;

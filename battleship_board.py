@@ -133,8 +133,8 @@ class Board():
                 point = all_points[i][:, k]
                 for other_ship in ships:
                     if other_ship is not ship:
-                        phi[(i*4):(i*4+4)], dphi_dq[(i*4):(i*4+4), (k*3):(k*3+3)] = other_ship.getSignedDistanceToPoint(point)
-
+                        phi[(i*4):(i*4+4)], dphi_dq[(i*4):(i*4+4), (k*3):(k*3+3)] = other_ship.GetSignedDistanceToPoint(point)
+        print(phi, dphi_dq)
 
         return ships
 
