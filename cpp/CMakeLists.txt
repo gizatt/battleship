@@ -16,7 +16,7 @@ add_subdirectory(pybind11)
 
 find_package(drake CONFIG REQUIRED)
 
-add_library(battleship_utils battleship_utils.cc battleship_utils.h)
+add_library(battleship_utils battleship_utils.cc)
 set_target_properties(battleship_utils PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 target_link_libraries(battleship_utils
     drake::drake)

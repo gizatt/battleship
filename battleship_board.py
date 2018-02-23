@@ -7,6 +7,8 @@ import numpy as np
 import random
 import sys
 
+import battleship_utils_py as bscpp
+
 from pydrake.solvers import mathematicalprogram as mp
 import pydrake.symbolic as sym
 from pydrake.solvers.gurobi import GurobiSolver
@@ -30,7 +32,7 @@ def project_onto_line_segment(v, w, p):
 def get_sign_of_distance_to_line_segment(v, w, p):
     return np.sign((w-v)[0]*p[1] - (w-v)[1]*p[0])
 
-class Ship():
+class DeadShip():
     def __init__(self, length, x, y, theta, color=[1., 0., 0.]):
         self.length = length
         self.x = x
@@ -42,15 +44,15 @@ class Ship():
     def tfmat(self):
         return tfmat(self.x, self.y, self.theta)
 
-    def getPoints(self, spacing=0.5, sidelength=1.0):
-        if (spacing, sidelength) in self.precomputed_points.keys():
-            return self.precomputed_points[(spacing, sidelength)]
+    def getPoints(self, spacing=0.5, side_length=1.0):
+        if (spacing, side_length) in self.precomputed_points.keys():
+            return self.precomputed_points[(spacing, side_length)]
         else:
             # "Center" at 0, 0
-            corners = np.array([[-sidelength/2.                ,-sidelength/2.],
-                                [-sidelength/2.                , sidelength/2.],
-                                [ sidelength/2.+(self.length-1), sidelength/2.],
-                                [ sidelength/2.+(self.length-1),-sidelength/2.]]).T
+            corners = np.array([[-side_length/2.                ,-side_length/2.],
+                                [-side_length/2.                , side_length/2.],
+                                [ side_length/2.+(self.length-1), side_length/2.],
+                                [ side_length/2.+(self.length-1),-side_length/2.]]).T
 
             points = []
             for i in range(4):
@@ -60,22 +62,22 @@ class Ship():
                 points.append(c1)
 
                 length = np.sqrt(np.linalg.norm(c2 - c1))
-                for interp in np.arange(0., 1., spacing/length):
+                for interp in np.arange(spacing/length, 1., spacing/length):
                     points.append(c1*(1.-interp) + c2*interp)
             
             points = np.array(points).T
             
-            self.precomputed_points[(spacing, sidelength)] = points
+            self.precomputed_points[(spacing, side_length)] = points
             return points
 
-    def getPointsInWorldFrame(self, spacing=0.5, sidelength=1.0):
-        points = self.getPoints(spacing, sidelength)
+    def getPointsInWorldFrame(self, spacing=0.5, side_length=1.0):
+        points = self.getPoints(spacing, side_length)
         points_homog = np.vstack([points, np.ones(points.shape[1])])
         return np.dot(self.tfmat(), points_homog)[0:2, :]
 
     def getSignedDistanceToPoint(self, point):
         # Get corners
-        corners = self.getPointsInWorldFrame(spacing=self.length, sidelength=1.0)
+        corners = self.getPointsInWorldFrame(spacing=self.length, side_length=1.0)
 
         phi = np.zeros(4)
         dphi_dq = np.zeros((4, 3))
@@ -86,7 +88,7 @@ class Ship():
             projected_point = project_onto_line_segment(c1, c2, point)
             sign = get_sign_of_distance_to_line_segment(c1, c2, point)
             phi[i] = sign * np.linalg.norm(projected_point - point)
-            dphi_dq[i, 0] = sign * 
+            dphi_dq[i, 0] = sign * 0
 
 
         return phi, dphi_dq
@@ -129,7 +131,7 @@ class Board():
         # configuration.
         color_generator = iter(plt.cm.rainbow(np.linspace(0, 1, N)))
         for i in range(N):
-            new_ship = Ship(random.randrange(1, max_length+1),
+            new_ship = bscpp.Ship(random.randrange(1, max_length+1),
                             random.uniform(0., self.width),
                             random.uniform(0., self.height),
                             random.uniform(0., math.pi*2.),
@@ -149,10 +151,10 @@ class Board():
 
 
         for ship in self.ships:
-            ship_points_homog = ship.getPointsInWorldFrame(sidelength=0.9, spacing=1.0)
-            ax.fill(ship_points_homog[0, :], ship_points_homog[1, :],
+            ship_points = ship.GetPointsInWorldFrame(side_length=0.9, spacing=1.0)
+            ax.fill(ship_points[0, :], ship_points[1, :],
                         edgecolor='k',
-                        facecolor=ship.color,
+                        facecolor=ship.get_color(),
                         closed=True)
 
         plt.pause(0.00001)
@@ -178,7 +180,7 @@ class Board():
 
         all_points = []
         for i, ship in enumerate(ships):
-            all_points.append(ship.getPointsInWorldFrame(spacing=0.5, sidelength=1.0))
+            all_points.append(ship.GetPointsInWorldFrame(spacing=0.5, side_length=1.0))
         npts = np.sum( [pts.shape[1] for pts in all_points] )
 
         print("Npts %d" % npts)
@@ -341,7 +343,7 @@ class Board():
         return out_ships
 
 if __name__ == "__main__":
-    ship = Ship(5, 2.3, 1.0, 0.2)
+    ship = bscpp.Ship(5, 2.3, 1.0, 0.2, [1., 0., 0.])
 
     board = Board(10, 10)
     board.spawn_N_ships(20, max_length=5)
