@@ -35,12 +35,14 @@ Scalar get_signed_distance_to_line_segment(Matrix<Scalar, 2, 1> v,
 
   // Get sign by dotting onto a vector orthogonal to the line,
   // assuming it's directed v->w
-
   Scalar l2 = (w - v).transpose() * (w - v);
   Matrix<Scalar, 2, 1> cross_dir;
-  cross_dir(0) = -(w - v)(1) / l2;
-  cross_dir(1) = (w - v)(0) / l2;
-  return error.transpose() * cross_dir;
+  cross_dir(0) = (w - v)(1) / l2;
+  cross_dir(1) = -(w - v)(0) / l2;
+  if ((error.transpose() * cross_dir)[0] >= 0.)
+    return (error.transpose() * error)[0];
+  else
+    return -1.0 * (error.transpose() * error)[0];
 }
 
 template <typename Scalar>
@@ -115,6 +117,7 @@ template <typename Scalar>
 Matrix<Scalar, Dynamic, 1> Ship<Scalar>::GetSignedDistanceToPoints(
     const Matrix<Scalar, 2, Dynamic> points) {
   Matrix<Scalar, 4, Dynamic> phi_all(4, points.cols());
+  Matrix<Scalar, Dynamic, 1> phi_out(points.cols(), 1);
 
   auto corners = GetPointsInWorldFrame(length_, 1.0);
 
@@ -127,7 +130,13 @@ Matrix<Scalar, Dynamic, 1> Ship<Scalar>::GetSignedDistanceToPoints(
     }
   }
 
-  return phi_all.rowwise().minCoeff();
+  // Take min abs distance with sig
+  for (int k = 0; k < points.cols(); k++) {
+    phi_out(k) = phi_all.col(k).cwiseAbs().minCoeff();
+    if (phi_all.col(k).maxCoeff() < 0.) phi_out(k) *= -1.;
+  }
+
+  return phi_out;
 }
 
 template class Ship<double>;

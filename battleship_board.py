@@ -91,7 +91,7 @@ class Board():
 
 
         for ship in self.ships:
-            ship_points = ship.GetPointsInWorldFrame(side_length=0.9, spacing=1.0)
+            ship_points = ship.GetPointsInWorldFrame(side_length=1.0, spacing=1.0)
             ax.fill(ship_points[0, :], ship_points[1, :],
                         edgecolor='k',
                         facecolor=ship.get_color(),
@@ -140,13 +140,11 @@ class Board():
                     )
             )
 
-        all_points = []
-        for i, ship in enumerate(autodiff_ships):
-            all_points.append(ship.GetPointsInWorldFrame(spacing=0.5, side_length=1.0))
-
-        npts = np.sum( [pts.shape[1] for pts in all_points] )
-
         for ii in range(50):
+            all_points = []
+            for i, ship in enumerate(autodiff_ships):
+                all_points.append(ship.GetPointsInWorldFrame(spacing=0.5, side_length=1.0))
+
             phi = np.empty(len(ships), dtype=AutoDiffXd)
 
             for i, ship in enumerate(autodiff_ships):
@@ -155,7 +153,7 @@ class Board():
                 all_nearphase_phis = np.empty(len(ships), dtype=AutoDiffXd)
                 num_nearphase_ships = 0
 
-                for other_ship in autodiff_ships:
+                for j, other_ship in enumerate(autodiff_ships):
                     if other_ship is not ship:
                         ship_dist = math.sqrt((ship.get_x().value() - other_ship.get_x().value())**2
                             +(ship.get_y().value() - other_ship.get_y().value())**2)
@@ -163,15 +161,16 @@ class Board():
                         #if ship_dist > closest_ship_dist+ship.get_length()+other_ship.get_length():
                         #    continue
 
-                        all_nearphase_phis[num_nearphase_ships] = np.min(other_ship.GetSignedDistanceToPoints(all_points[i]))
+                        sdfs = np.array(other_ship.GetSignedDistanceToPoints(all_points[i]))
+                        all_nearphase_phis[num_nearphase_ships] = np.amin(other_ship.GetSignedDistanceToPoints(all_points[i]))
                         num_nearphase_ships+=1
-                
+
                 phi[i] = np.min(all_nearphase_phis[0:num_nearphase_ships])
 
             q_correct = np.zeros(nq)
             for i, phi_i in enumerate(phi):
-                if phi_i.value() < 0:
-                    q_correct += -0.5*phi_i.derivatives()
+                if phi_i < 0.0:
+                    q_correct += 0.1*phi_i.derivatives()
 
             print(q_correct)
             for i, ship in enumerate(autodiff_ships):
@@ -185,6 +184,9 @@ class Board():
             if ax is not None:
                 ax.clear()
                 self.draw(ax)
+
+            import time
+            time.sleep(0.05)
 
 
         print("Done")
@@ -338,6 +340,12 @@ if __name__ == "__main__":
 
     board = Board(10, 10)
     board.spawn_N_ships(10, max_length=5)
+ #   new_ship = bscpp.Ship(1, 0., 0., 0., [1., 0., 0.])
+#    board.ships.append(new_ship)
+
+#    new_ship = bscpp.Ship(1, 0.75, 0., 1., [0., 1., 1.])
+#    board.ships.append(new_ship)
+
 
     fig, (ax1, ax2) = plt.subplots(1, 2)
     board.draw(ax1)
