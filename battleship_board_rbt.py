@@ -102,7 +102,7 @@ def spawn_rbt(width, height, max_length, N):
     rbt.compile()
     return rbt, q0
 
-def projectToFeasibility(rbt, q0, board_width, board_height):        
+def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):        
     constraints = []
 
     constraints.append(ik.MinDistanceConstraint(
@@ -130,6 +130,14 @@ def projectToFeasibility(rbt, q0, board_width, board_height):
         rbt, q0, q0, constraints, options)
     return results.q_sol[0], results.info
 
+def projectToFeasibilityWithNLP(rbt, q0, board_width, board_height):        
+    # More generic than above... instead of using IK to quickly
+    # assembly the nlp solve that goes to snopt, build it ourselves.
+    # (Gives us lower-level control at the cost of complexity.)
+
+    print("TODO, I think this requires a few new drake bindings"
+          " for generic nonlinear constraints")
+
 
 if __name__ == "__main__":
 
@@ -151,7 +159,7 @@ if __name__ == "__main__":
 
         for j in range(10):
             noise = np.random.normal(q0.shape)*0.1
-            q_sol, info = projectToFeasibility(rbt, q0+noise, board_width, board_height)
+            q_sol, info = projectToFeasibilityWithIK(rbt, q0+noise, board_width, board_height)
             print(q_sol, info)
 
             if info[0] not in info_histogram.keys():
