@@ -20,6 +20,45 @@ from pydrake.multibody.collision import CollisionElement
 
 from underactuated import PlanarRigidBodyVisualizer
 
+def nullspace(A, atol=1e-13, rtol=0):
+    """Compute an approximate basis for the nullspace of A.
+
+    The algorithm used by this function is based on the singular value
+    decomposition of `A`.
+
+    Parameters
+    ----------
+    A : ndarray
+        A should be at most 2-D.  A 1-D array with length k will be treated
+        as a 2-D with shape (1, k)
+    atol : float
+        The absolute tolerance for a zero singular value.  Singular values
+        smaller than `atol` are considered to be zero.
+    rtol : float
+        The relative tolerance.  Singular values less than rtol*smax are
+        considered to be zero, where smax is the largest singular value.
+
+    If both `atol` and `rtol` are positive, the combined tolerance is the
+    maximum of the two; that is::
+        tol = max(atol, rtol * smax)
+    Singular values smaller than `tol` are considered to be zero.
+
+    Return value
+    ------------
+    ns : ndarray
+        If `A` is an array with shape (m, k), then `ns` will be an array
+        with shape (k, n), where n is the estimated dimension of the
+        nullspace of `A`.  The columns of `ns` are a basis for the
+        nullspace; each element in numpy.dot(A, ns) will be approximately
+        zero.
+    """
+    A = np.atleast_2d(A)
+    u, s, vh = np.linalg.svd(A)
+    tol = max(atol, rtol * s[0])
+    nnz = (s >= tol).sum()
+    ns = vh[nnz:].conj().T
+    return ns
+
 class BattleshipBoardVisualizer(PlanarRigidBodyVisualizer):
     def __init__(self, width, height, *args, **kwargs):
         PlanarRigidBodyVisualizer.__init__(self, *args, **kwargs)
@@ -121,16 +160,73 @@ def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):
             constraints.append(ik.WorldPositionConstraint(
                 rbt, body_i+1, points, lb, ub))
 
-
     options = ik.IKoptions(rbt)
     options.setDebug(True)
     options.setMajorIterationsLimit(10000)
     options.setIterationsLimit(100000)
     results = ik.InverseKin(
         rbt, q0, q0, constraints, options)
-    return results.q_sol[0], results.info
 
-def projectToFeasibilityWithNLP(rbt, q0, board_width, board_height):        
+
+    qf = results.q_sol[0]
+    info = results.info[0]
+    dqf_dq0 = np.zeros(qf.shape[0])
+    if info == 1:
+        # We've solved an NLP of the form:
+        # qf = argmin_q || q - q_0 ||
+        #        s.t. phi(q) >= 0
+        #
+        # which projects q_0 into the feasible set $phi(q) >= 0$.
+        # We want to return the gradient of qf w.r.t. q_0.
+
+        # We'll tackle an approximation of this (which isn't perfect,
+        # but is a start):
+        # We'll build a linear approximation of the active set at
+        # the optimal value, and project the incremental dq_0 into
+        # the null space of this active set.
+
+        # These vectors all point in directions that would
+        # bring q off of the constraint surfaces.
+        constraint_violation_directions = []
+
+        cache = rbt.doKinematics(qf)
+        for i, constraint in enumerate(constraints):
+            c, dc = constraint.eval(0, cache)
+            lb, ub = constraint.bounds(0)
+
+            phi_lb = c - lb
+            phi_ub = ub - c
+            for k in range(c.shape[0]):
+                if phi_lb[k] < -1E-6 or phi_ub[k] < -1E-6:
+                    print("Bounds violation detected, solution wasn't feasible")
+                    print("%f <= %f <= %f" % (phi_lb[k], c[k], phi_ub[k]))
+                    return qf, info, dqf_dq0
+
+                if phi_lb[k] < 1E-6:
+                    # Not allowed to go down
+                    constraint_violation_directions.append(-dc[k, :])
+
+                # If ub = lb and ub is active, then lb is also active,
+                # and we don't need to double-add this vector.
+                if phi_ub[k] < 1E-6 and phi_ub[k] != phi_lb[k]:
+                    # Not allowed to go up
+                    constraint_violation_directions.append(dc[k, :])
+
+        # Build a full matrix C(q0_new - qstar) = 0
+        # that approximates the feasible set.
+        if len(constraint_violation_directions) > 0:
+            C = np.vstack(constraint_violation_directions)
+            ns = nullspace(C)
+
+            dqf_dq0 = np.eye(qf.shape[0])
+            dqf_dq0 = np.dot(np.dot(dqf_dq0, ns), ns.T)
+        else:
+            # No null space so movements
+            dqf_dq0 = np.eye(qf.shape[0])
+
+    return qf, info, dqf_dq0
+
+def projectToFeasibilityWithNLP(rbt, q0, board_width, board_height):
     # More generic than above... instead of using IK to quickly
     # assembly the nlp solve that goes to snopt, build it ourselves.
     # (Gives us lower-level control at the cost of complexity.)
@@ -141,38 +237,53 @@ def projectToFeasibilityWithNLP(rbt, q0, board_width, board_height):
 
 if __name__ == "__main__":
 
+    np.set_printoptions(precision=4, suppress=True)
 
     fig, (ax1, ax2) = plt.subplots(1, 2)
 
     board_width = 10
     board_height = 10
 
-    info_histogram = {}
+    error_pairs = []
 
-    for i in range(10000):
-        ax1.clear()
-        ax2.clear()
+    for i in range(10):
+        info_0 = -1
+        while info_0 != 1:
+            ax1.clear()
+            ax2.clear()
+            rbt, q0 = spawn_rbt(board_width, board_height, 5, 5)
+            draw_board_state(ax1, q0, board_width, board_height)
+            q_sol_0, info_0, dqf_dq0_0 = \
+                projectToFeasibilityWithIK(rbt, q0, board_width, board_height)
 
-        rbt, q0 = spawn_rbt(board_width, board_height, 5, 5)
+        for j in range(50):
+            info = -1
+            while info != 1:
+                noise = np.random.normal(loc=0.0, scale=0.1/(j+1), size=q0.shape)
+                q_sol, info, dqf_dq0 = \
+                    projectToFeasibilityWithIK(rbt, q0+noise, board_width, board_height)
 
-        draw_board_state(ax1, q0, board_width, board_height)
-
-        for j in range(10):
-            noise = np.random.normal(q0.shape)*0.1
-            q_sol, info = projectToFeasibilityWithIK(rbt, q0+noise, board_width, board_height)
-            print(q_sol, info)
-
-            if info[0] not in info_histogram.keys():
-                info_histogram[info[0]] = 1
-            else:
-                info_histogram[info[0]] += 1
-
-            print(info_histogram)
+            # Did our linearization predict this solution very well?
+            expected_q_sol_new = np.dot(dqf_dq0_0, noise) + q_sol_0
+            est_error = np.linalg.norm(expected_q_sol_new - q_sol)
+            ini_error = np.linalg.norm(noise)
+            print("\nError in estimate: ", est_error)
+            print("Error in initial: ", ini_error)
+            error_pairs.append([ini_error, est_error])
 
             draw_board_state(ax2, q_sol, board_height, board_width)
-
             plt.draw()
-
             plt.pause(1e-6)
 
-        plt.pause(1)
+        plt.pause(0.1)
+
+    plt.figure()
+    all_error_pairs = np.vstack(error_pairs).T
+    plt.scatter(all_error_pairs[0, :], all_error_pairs[1, :])
+    plt.plot([-10.0, 10.0], [-10.0, 10.0], '--')
+    plt.xlim([0., 1.1*np.max(all_error_pairs[0, :])])
+    plt.ylim([0., 1.1*np.max(all_error_pairs[1, :])])
+    plt.xlabel("Norm difference to q0_new")
+    plt.ylabel("Prediction error of qf_new")
+    plt.grid(True)
+    plt.show()
