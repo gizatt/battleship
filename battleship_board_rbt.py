@@ -239,12 +239,13 @@ if __name__ == "__main__":
 
     np.set_printoptions(precision=4, suppress=True)
 
+    os.system("mkdir -p figs")
     fig, (ax1, ax2) = plt.subplots(1, 2)
+    scatter_fig, scatter_ax = plt.subplots(1, 1)
 
     board_width = 10
     board_height = 10
 
-    error_pairs = []
 
     for i in range(20):
         info_0 = -1
@@ -256,6 +257,7 @@ if __name__ == "__main__":
             q_sol_0, info_0, dqf_dq0_0 = \
                 projectToFeasibilityWithIK(rbt, q0, board_width, board_height)
 
+        error_pairs = []
         for j in range(50):
             info = -1
             while info != 1:
@@ -275,17 +277,19 @@ if __name__ == "__main__":
             plt.draw()
             plt.pause(1e-6)
 
-        fig.savefig('plot_ik_%d.png' % i)
+        fig.savefig('figs/plot_run_%d_ik.png' % i)
+
+        all_error_pairs = np.vstack(error_pairs).T
+        scatter_ax.clear()
+        scatter_ax.scatter(all_error_pairs[0, :], all_error_pairs[1, :])
+        scatter_ax.plot([-10.0, 10.0], [-10.0, 10.0], '--')
+        scatter_ax.set_xlim([0., 1.1*np.max(all_error_pairs[0, :])])
+        scatter_ax.set_ylim([0., 1.1*np.max(all_error_pairs[1, :])])
+        scatter_ax.set_xlabel("Norm difference to q0_new")
+        scatter_ax.set_ylabel("Prediction error of qf_new")
+        scatter_ax.grid(True)
+        scatter_fig.savefig('figs/plot_run_%d_prediction_error_of_lin.png' % i)
+
         plt.pause(0.1)
 
-    fig = plt.figure()
-    all_error_pairs = np.vstack(error_pairs).T
-    plt.scatter(all_error_pairs[0, :], all_error_pairs[1, :])
-    plt.plot([-10.0, 10.0], [-10.0, 10.0], '--')
-    plt.xlim([0., 1.1*np.max(all_error_pairs[0, :])])
-    plt.ylim([0., 1.1*np.max(all_error_pairs[1, :])])
-    plt.xlabel("Norm difference to q0_new")
-    plt.ylabel("Prediction error of qf_new")
-    plt.grid(True)
-    fig.savefig('plot_prediction_error_of_lin.png')
     plt.show()
