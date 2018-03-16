@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
     error_pairs = []
 
-    for i in range(10):
+    for i in range(20):
         info_0 = -1
         while info_0 != 1:
             ax1.clear()
@@ -275,9 +275,10 @@ if __name__ == "__main__":
             plt.draw()
             plt.pause(1e-6)
 
+        fig.savefig('plot_ik_%d.png' % i)
         plt.pause(0.1)
 
-    plt.figure()
+    fig = plt.figure()
     all_error_pairs = np.vstack(error_pairs).T
     plt.scatter(all_error_pairs[0, :], all_error_pairs[1, :])
     plt.plot([-10.0, 10.0], [-10.0, 10.0], '--')
@@ -286,4 +287,5 @@ if __name__ == "__main__":
     plt.xlabel("Norm difference to q0_new")
     plt.ylabel("Prediction error of qf_new")
     plt.grid(True)
+    fig.savefig('plot_prediction_error_of_lin.png')
     plt.show()
