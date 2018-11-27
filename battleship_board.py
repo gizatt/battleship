@@ -79,9 +79,9 @@ class Board():
             self.ships.append(new_ship)
 
     def draw(self, ax):
-        ax.axis('equal')
+        ax.autoscale(enable=False, axis='both')
+        ax.set_aspect('equal', adjustable='box')
         ax.axis('on')
-        ax.set_aspect('equal', 'datalim')
         ax.set_xticks(range(0, self.width+1))
         ax.set_xticks(np.arange(-0.5, self.width, 1.0), minor=True)
         ax.set_yticks(range(0, self.height+1))
@@ -89,10 +89,13 @@ class Board():
         ax.grid(which="major", color="b", linestyle="--")
         ax.grid(which="minor", color="b", linestyle="-")
 
+        ax.set_xlim([0, self.width])
+        ax.set_ylim([0, self.height])
+
 
         for ship in self.ships:
             ship_points = ship.GetPointsInWorldFrame(side_length=1.0, spacing=1.0)
-            ax.fill(ship_points[0, :], ship_points[1, :],
+            ax.fill(ship_points[0, :]+0.5, ship_points[1, :]+0.5,
                         edgecolor='k',
                         facecolor=ship.get_color(),
                         closed=True)
@@ -249,9 +252,9 @@ class Board():
 
             # That's an awful lot of work that we wouldn't have to do if we had
             # integer constraints...
-            prog.AddQuadraticCost( (ship_pose_variables["x"]-ship.x)**2. )
-            prog.AddQuadraticCost( (ship_pose_variables["y"]-ship.y)**2. )
-            prog.AddQuadraticCost( (ship_pose_variables["t"]-ship.theta)**2. )
+            prog.AddQuadraticCost( (ship_pose_variables["x"]-ship.get_x())**2. )
+            prog.AddQuadraticCost( (ship_pose_variables["y"]-ship.get_y())**2. )
+            prog.AddQuadraticCost( (ship_pose_variables["t"]-ship.get_theta())**2. )
 
             # Using those, we can calculate (as a linear relationship) the
             # contribution of each ship to each cell in the occupancy grid
@@ -263,7 +266,7 @@ class Board():
                                              [ship_pose_variables["x_bins"][w],
                                               ship_pose_variables["y_bins"][h]])
 
-                    for l in range(1, ship.length):
+                    for l in range(1, ship.get_length()):
                         # At l along the ship length, we could cause occupancy by being
                         # in any of the cardinal directions by length, depending on
                         # the value of theta
@@ -327,11 +330,11 @@ class Board():
 
         out_ships = []
         for i, ship in enumerate(ships):
-            length = ship.length
+            length = ship.get_length()
             x = prog.GetSolution(ship_pose_variables_by_ship[i]["x"])
             y = prog.GetSolution(ship_pose_variables_by_ship[i]["y"])
             t = prog.GetSolution(ship_pose_variables_by_ship[i]["t"])
-            out_ships.append(Ship(length, x, y, t, ship.color))
+            out_ships.append(bscpp.Ship(length, x, y, t, ship.get_color()))
             print("Ship %d: %dx(%f,%f,%f)" % (i, length, x, y, t))
         return out_ships
 
@@ -339,7 +342,7 @@ if __name__ == "__main__":
     ship = bscpp.Ship(5, 2.3, 1.0, 0.2, [1., 0., 0.])
 
     board = Board(10, 10)
-    board.spawn_N_ships(10, max_length=5)
+    board.spawn_N_ships(5, max_length=5)
  #   new_ship = bscpp.Ship(1, 0., 0., 0., [1., 0., 0.])
 #    board.ships.append(new_ship)
 
@@ -351,6 +354,7 @@ if __name__ == "__main__":
     board.draw(ax1)
     fig.show()
 
-    board.ships = board.project_to_feasibility_nlp(board.ships, ax2)
+  #  board.ships = board.project_to_feasibility_nlp(board.ships, ax2)
+    board.ships = board.project_to_feasibility_mip(board.ships)
     board.draw(ax2)
     plt.show()

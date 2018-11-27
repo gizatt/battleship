@@ -78,58 +78,63 @@ class BattleshipBoardVisualizer(PlanarRigidBodyVisualizer):
         self.ax.grid(which="major", color="b", linestyle="--")
         self.ax.grid(which="minor", color="b", linestyle="-")
 
-        self.ax.set_xlim([0, self.width])
-        self.ax.set_ylim([0, self.height])
-
+        self.ax.set_xlim([-1, self.width+1])
+        self.ax.set_ylim([-1, self.height+1])
 
     def draw(self, context):
         PlanarRigidBodyVisualizer.draw(self, context)
 
-def draw_board_state(ax, q, board_width, board_height):
+
+def draw_board_state(ax, rbt, q, board_width, board_height):
     Tview = np.array([[1., 0., 0., 0.],
                       [0., 1., 0., 0.],
                       [0., 0., 0., 0.],
                       [0., 0., 0., 1.]])
-    viz = BattleshipBoardVisualizer(board_width, board_height,
-        rbt, Tview, xlim=[0., board_width],
-        ylim=[0., board_height], ax = ax)
+    viz = BattleshipBoardVisualizer(
+        board_width, board_height, rbt, Tview, xlim=[0., board_width],
+        ylim=[0., board_height], ax=ax)
     viz.draw(q)
+    return viz
 
-def spawn_rbt(width, height, max_length, N):
+
+def spawn_rbt(width, height, max_length, N, random_length=True):
     rbt = RigidBodyTree()
     q0 = np.zeros(N*3)
     world_body = rbt.get_body(0)
 
-
-    color_generator = iter(plt.cm.rainbow(np.linspace(0, 1, N)))
+    color_generator = iter(plt.cm.rainbow(np.linspace(0, 1, N+1)))
     for i in range(N):
-        q0[i*3+0] = random.uniform(0., width)
-        q0[i*3+1] = random.uniform(0., height)
-        q0[i*3+2] = random.uniform(0., math.pi*2.)
+        q0[i*3+0] = np.random.uniform(0., width)
+        # q0[i*3+1] = height / 2.
+        q0[i*3+1] = np.random.uniform(0., height)
+        q0[i*3+2] = np.random.uniform(0., math.pi*2.)
         color = next(color_generator)
-        length = random.randrange(1, max_length + 1)
+        if random_length:
+            length = random.randrange(1, max_length + 1)
+        else:
+            length = max_length
 
         joint_link_x = RigidBody()
         joint_link_x.set_name("ship_%d_joint_link_x" % i)
-        joint_link_x.add_prismatic_joint(
+        joint_link_x.add_joint(
             world_body, PrismaticJoint("x", np.eye(4), np.array([1., 0., 0.])))
         rbt.add_rigid_body(joint_link_x)
 
         joint_link_y = RigidBody()
         joint_link_y.set_name("ship_%d_joint_link_y" % i)
-        joint_link_y.add_prismatic_joint(
+        joint_link_y.add_joint(
             joint_link_x, PrismaticJoint("y", np.eye(4), np.array([0., 1., 0.])))
         rbt.add_rigid_body(joint_link_y)
 
         ship_link = RigidBody()
         ship_link.set_name("ship_%d_ship_link" % i)
-        ship_link.add_revolute_joint(
+        ship_link.add_joint(
             joint_link_y, RevoluteJoint("theta", np.eye(4), np.array([0., 0., 1.])))
         boxElement = Box([1.0, length, 1.0])
         boxVisualElement = VisualElement(boxElement, np.eye(4), color)
         ship_link.AddVisualElement(boxVisualElement)
         # necessary so this last link isn't pruned by the rbt.compile() call
-        ship_link.set_spatial_inertia(np.eye(6)) 
+        ship_link.set_spatial_inertia(np.eye(6))
         # get welded
         rbt.add_rigid_body(ship_link)
 
@@ -137,15 +142,55 @@ def spawn_rbt(width, height, max_length, N):
         boxCollisionElement.set_body(ship_link)
         rbt.addCollisionElement(boxCollisionElement, ship_link, "default")
 
+    # Add wall visual + collision elements
+    wall_color = next(color_generator)
+    wallWidthElement = Box([width+2, 100.0, 1.0])
+    tf = np.eye(4)
+    tf[0, 3] = width/2.
+    tf[1, 3] = -50
+    world_body.AddVisualElement(VisualElement(
+        wallWidthElement, tf, wall_color))
+    wall_ny_collision = CollisionElement(wallWidthElement, tf)
+    wall_ny_collision.set_body(world_body)
+    rbt.addCollisionElement(wall_ny_collision, world_body, "default")
+
+    tf[0, 3] = width/2.
+    tf[1, 3] = height+50
+    world_body.AddVisualElement(VisualElement(
+        wallWidthElement, tf, wall_color))
+    wall_py_collision = CollisionElement(wallWidthElement, tf)
+    wall_py_collision.set_body(world_body)
+    rbt.addCollisionElement(wall_py_collision, world_body, "default")
+
+    wallHeightElement = Box([100.0, height+2, 1.0])
+    tf = np.eye(4)
+    tf[0, 3] = -50
+    tf[1, 3] = height/2.
+    world_body.AddVisualElement(VisualElement(
+        wallHeightElement, tf, wall_color))
+    wall_nx_collision = CollisionElement(wallHeightElement, tf)
+    wall_nx_collision.set_body(world_body)
+    rbt.addCollisionElement(wall_nx_collision, world_body, "default")
+
+    tf = np.eye(4)
+    tf[0, 3] = width+50
+    tf[1, 3] = height/2.
+    world_body.AddVisualElement(VisualElement(
+        wallHeightElement, tf, wall_color))
+    wall_px_collision = CollisionElement(wallHeightElement, tf)
+    wall_px_collision.set_body(world_body)
+    rbt.addCollisionElement(wall_px_collision, world_body, "default")
 
     rbt.compile()
     return rbt, q0
 
-def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):        
+
+def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):
     constraints = []
 
     constraints.append(ik.MinDistanceConstraint(
-        model=rbt, min_distance=0.01))
+        model=rbt, min_distance=0.01, active_bodies_idx=[],
+        active_group_names=set()))
 
     for body_i in range(rbt.get_num_bodies()-1):
         # All corners on body must be inside of the
@@ -155,7 +200,8 @@ def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):
         if len(visual_elements) > 0:
             points = visual_elements[0].getGeometry().getPoints()
             lb = np.tile(np.array([0., 0., -100.]), (points.shape[1], 1)).T
-            ub = np.tile(np.array([board_width, board_height, 100.]), (points.shape[1], 1)).T
+            ub = np.tile(np.array([board_width, board_height, 100.]),
+                         (points.shape[1], 1)).T
 
             constraints.append(ik.WorldPositionConstraint(
                 rbt, body_i+1, points, lb, ub))
@@ -167,11 +213,12 @@ def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):
     results = ik.InverseKin(
         rbt, q0, q0, constraints, options)
 
-
     qf = results.q_sol[0]
     info = results.info[0]
-    dqf_dq0 = np.zeros(qf.shape[0])
-    if info == 1:
+    dqf_dq0 = np.eye(qf.shape[0])
+    #if info != 1:
+    #    print("Warning: returned info = %d != 1" % info)
+    if True or info == 1 or info == 100:
         # We've solved an NLP of the form:
         # qf = argmin_q || q - q_0 ||
         #        s.t. phi(q) >= 0
@@ -198,8 +245,10 @@ def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):
             phi_ub = ub - c
             for k in range(c.shape[0]):
                 if phi_lb[k] < -1E-6 or phi_ub[k] < -1E-6:
-                    print("Bounds violation detected, solution wasn't feasible")
-                    print("%f <= %f <= %f" % (phi_lb[k], c[k], phi_ub[k]))
+                    print("Bounds violation detected, "
+                          "solution wasn't feasible")
+                    print("%f <= %f <= %f" % (lb[k], c[k], ub[k]))
+                    print("Constraint type ", type(constraint))
                     return qf, info, dqf_dq0
 
                 if phi_lb[k] < 1E-6:
@@ -217,14 +266,13 @@ def projectToFeasibilityWithIK(rbt, q0, board_width, board_height):
         if len(constraint_violation_directions) > 0:
             C = np.vstack(constraint_violation_directions)
             ns = nullspace(C)
-
             dqf_dq0 = np.eye(qf.shape[0])
             dqf_dq0 = np.dot(np.dot(dqf_dq0, ns), ns.T)
         else:
             # No null space so movements
             dqf_dq0 = np.eye(qf.shape[0])
-
     return qf, info, dqf_dq0
+
 
 def projectToFeasibilityWithNLP(rbt, q0, board_width, board_height):
     # More generic than above... instead of using IK to quickly
@@ -246,14 +294,13 @@ if __name__ == "__main__":
     board_width = 10
     board_height = 10
 
-
     for i in range(20):
         info_0 = -1
         while info_0 != 1:
             ax1.clear()
             ax2.clear()
             rbt, q0 = spawn_rbt(board_width, board_height, 5, 5)
-            draw_board_state(ax1, q0, board_width, board_height)
+            draw_board_state(ax1, rbt, q0, board_width, board_height)
             q_sol_0, info_0, dqf_dq0_0 = \
                 projectToFeasibilityWithIK(rbt, q0, board_width, board_height)
 
@@ -261,9 +308,11 @@ if __name__ == "__main__":
         for j in range(50):
             info = -1
             while info != 1:
-                noise = np.random.normal(loc=0.0, scale=0.1/(j+1), size=q0.shape)
+                noise = np.random.normal(loc=0.0, scale=0.1/(j+1),
+                                         size=q0.shape)
                 q_sol, info, dqf_dq0 = \
-                    projectToFeasibilityWithIK(rbt, q0+noise, board_width, board_height)
+                    projectToFeasibilityWithIK(
+                        rbt, q0+noise, board_width, board_height)
 
             # Did our linearization predict this solution very well?
             expected_q_sol_new = np.dot(dqf_dq0_0, noise) + q_sol_0
@@ -273,7 +322,7 @@ if __name__ == "__main__":
             print("Error in initial: ", ini_error)
             error_pairs.append([ini_error, est_error])
 
-            draw_board_state(ax2, q_sol, board_height, board_width)
+            draw_board_state(ax2, rbt, q_sol, board_height, board_width)
             plt.draw()
             plt.pause(1e-6)
 
